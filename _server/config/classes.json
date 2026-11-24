@@ -1,0 +1,24 @@
+{
+ "site": "https://www.wenjuan.com",
+ "webSite": "ai_skills",
+ "profile": "profile_brief.json",
+ "dims": "dims_brief.json",
+ "classes": [
+  {
+   "label": "周二班",
+   "pid": "6ad57de6e9cf9e5fb8776fb8"
+  },
+  {
+   "label": "周三班",
+   "pid": "6ae04a0a12e1360fb05873c0"
+  },
+  {
+   "label": "周四班",
+   "pid": "6ae04a32ed0383c5ac293f5c"
+  },
+  {
+   "label": "周六班",
+   "pid": "6ae04a4b12e136101b1746c8"
+  }
+ ]
+}

@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>中华射道课程 · 观德七心</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23ffffff' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+  /* 微信/iOS 会按系统「字体大小」把网页文字整体放大（text-size-adjust），
+     标题会被挤成两行。先关掉自动放大，再由下面的 fitTitle 按可用宽度收字号。 */
+  html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden}
+
+  /* ---------- 封面背景：GhostFibers 纤维丝带（WebGL2 满屏 canvas） ----------
+     原来是 orb3d 的黑洞 iframe；换成纤维后不再是 iframe，也不需要再做
+     「锁死尺寸防止球体漂移」那一套，canvas 的尺寸交给 ResizeObserver。 */
+  #bh{
+    position:fixed;inset:0;z-index:0;width:100%;height:100%;
+    background:#000;overflow:hidden;
+  }
+  #bh canvas{display:block;width:100%;height:100%}
+  /* 标题后面压一层柔和的椭圆暗角：纤维正好从中间穿过时，副标题那行小字会糊进亮点里。
+     只压中间这一小片，四周的丝带照旧看得见。 */
+  #bh::after{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(62% 28% at 50% 46%,
+      rgba(0,0,0,.86) 0%, rgba(0,0,0,.68) 40%, rgba(0,0,0,.3) 66%, rgba(0,0,0,0) 84%);
+  }
+  /* 设备没有 WebGL2 / 着色器没编译起来时退回纤维静帧，别给人一片纯黑
+     （图是从线上这版背景直接截的，竖屏/横屏各一张） */
+  #bh.bg-fallback{background:#000 url(./fibers/poster-m.jpg) center/cover no-repeat}
+  @media (min-aspect-ratio: 1/1){
+    #bh.bg-fallback{background-image:url(./fibers/poster-d.jpg)}
+  }
+
+  /* ---------- 标题覆盖层：居中，不遮交互 ---------- */
+  .overlay{
+    position:fixed;inset:0;z-index:4;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:22px;cursor:pointer;pointer-events:none;
+    -webkit-tap-highlight-color:transparent;
+    transition:opacity .45s ease, visibility .45s, transform .5s cubic-bezier(.22,.9,.28,1);
+  }
+  .title{
+    color:#f5f2ec;
+    font-family:"Songti SC","STSong","SimSun","Noto Serif SC",serif;
+    font-size:clamp(19px,5vw,46px);
+    font-weight:600;
+    letter-spacing:.1em;
+    text-indent:.1em;
+    text-align:center;
+    text-shadow:0 0 24px rgba(0,0,0,.9),0 2px 12px rgba(0,0,0,.8);
+    animation:rise 1.6s cubic-bezier(.22,.8,.3,1) both .4s;
+  }
+  .sub{
+    color:rgba(245,242,236,.62);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:clamp(11px,2.2vw,14px);
+    letter-spacing:.32em;text-indent:.32em;
+    animation:rise-faint 1.6s cubic-bezier(.22,.8,.3,1) both .9s;
+  }
+  .hint{
+    position:fixed;left:0;right:0;bottom:max(34px,env(safe-area-inset-bottom));
+    text-align:center;
+    color:rgba(245,242,236,.5);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:12px;letter-spacing:.3em;text-indent:.3em;
+    animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+  @keyframes rise-faint{from{opacity:0;transform:translateY(18px)}to{opacity:.62;transform:none}}
+  @keyframes pulse{0%,100%{opacity:.45}50%{opacity:.9}}
+
+  /* 洞心热区：透明圆形，接收点击开面板 */
+  .hotspot{
+    position:fixed;left:50%;top:50%;z-index:5;
+    transform:translate(-50%,-50%);
+    width:min(68vmin,640px);height:min(68vmin,640px);
+    border:0;padding:0;border-radius:50%;background:transparent;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* ---------- 背景遮罩 ----------
+     刻意不用 backdrop-filter：球体全程要看得见、也一直在动。
+     这里只做一层很轻的压暗，给面板垫底。 */
+  .veil{
+    position:fixed;inset:0;z-index:3;
+    background:rgba(0,0,0,.18);
+    opacity:var(--veil-p,0);visibility:hidden;pointer-events:none;
+    transition:opacity .45s ease, visibility .45s;
+  }
+  body.sheet-open .veil{--veil-p:1;visibility:visible;pointer-events:auto}
+  /* 弹簧逐帧驱动时不能留 CSS 过渡，否则拖拽会拖出一条糊掉的尾巴 */
+  body.gx-anim .veil{transition:none}
+  body.sheet-open .overlay{opacity:0;visibility:hidden;transform:scale(.93)}
+
+  /* ---------- 底部弹出面板 ---------- */
+  /* 位置交给 --sheet-y：有 GXFluid 时由弹簧逐帧写像素值（可抓、可打断、可反向），
+     没有 JS 或降级动效时退回 CSS 过渡。两种模式共用同一套 DOM。 */
+  .sheet{
+    position:fixed;left:0;right:0;bottom:var(--kb,0px);z-index:6;
+    display:flex;justify-content:center;
+    transform:translateY(var(--sheet-y,105%));
+    transition:transform .55s cubic-bezier(.22,.9,.28,1);
+    will-change:transform;
+    pointer-events:none;
+  }
+  body.sheet-open .sheet{--sheet-y:0%;pointer-events:auto}
+  body.gx-spring .sheet{transition:none}
+  .sheet-card{
+    width:min(520px,100%);
+    /* 不做 backdrop-filter：面板背后要一直看得见、也在动的球体。
+       可读性靠「顶部透、底部实」的竖向渐变，加上一圈冷色描边。 */
+    background:linear-gradient(180deg,rgba(10,10,10,.48) 0%,rgba(10,10,10,.74) 42%,rgba(10,10,10,.84) 100%);
+    border:1px solid rgba(255,255,255,.20);border-bottom:0;
+    border-radius:22px 22px 0 0;
+    padding:26px 26px calc(28px + env(safe-area-inset-bottom));
+    color:#eef6f9;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    box-shadow:0 -18px 60px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.16);
+    transform:translateZ(0);
+  }
+  /* 抓取区：按住往下拖 = 关闭面板（往上推无效果） */
+  .grab-zone{
+    display:flex;align-items:center;justify-content:center;
+    height:32px;margin:-14px 0 6px;padding:0;
+    cursor:grab;touch-action:none;
+  }
+  .grab-zone:active{cursor:grabbing}
+  .grab{width:40px;height:4px;border-radius:2px;background:rgba(245,242,236,.28);
+        transition:width .2s,background .2s}
+  .gx-dragging .grab{width:52px;background:rgba(245,242,236,.55)}
+  .sheet h2{
+    font-family:"Songti SC","STSong","SimSun","Noto Serif SC",serif;
+    font-size:19px;font-weight:600;letter-spacing:.08em;text-align:center;
+    white-space:nowrap;overflow:visible;
+  }
+  .sheet .en{margin:6px 0 20px;text-align:center;font-size:11px;letter-spacing:.22em;color:rgba(245,242,236,.5)}
+  .fld{margin-bottom:14px}
+  .fld label{display:block;font-size:12.5px;letter-spacing:.1em;color:rgba(238,246,249,.72);margin-bottom:7px}
+  /* 环体的流动：--mfx-a 用 @property 注册成 <angle> 才有逐帧插值，
+     不支持的内核退化成静态金属环（只是不转，不影响输入）。14s 一圈，
+     因为色标本身关于 180° 对称，看起来是每 7s 一次呼吸。 */
+  @property --mfx-a{syntax:'<angle>';inherits:false;initial-value:0deg}
+  @keyframes mfx-turn{to{--mfx-a:360deg}}
+  /* ---------- 输入框：银白金属环（参数照搬「查看」按钮上的那一圈） ----------
+     两层 conic 叠在 border-box 上，比一条几十个色标的渐变好读也好调：
+       底层「环体」：铁灰 → 银 → 白高光，左右镜像，整圈永远是亮的
+       上层「色差」：只在顶中 0° 与底中 180° 各留一段 ~29° 的窄彩（约 14px），其余全透明
+     扁平元素上 conic 的角度绕中心算：宽 780 / 高 52 的框，上下两条长边各占 ~165°，
+     左右两条短边合计才 ~15°。所以彩带放 0°/180° 才是「上下边中央闪一下」，
+     放 90°/270° 就拉成一条竖的彩条——那是上一版的毛病。
+     只取边框：按钮框里那道「一闪而过」的框内高光不做；环本身按液态金属慢慢转（14s 一圈）。 */
+  .fld input{
+    width:100%;padding:13px 15px;font-size:17px;color:#eef6f9;
+    font-family:inherit;letter-spacing:.3em;
+    /* 兜底：conic 画不出来（老内核）时留一条实色边，输入框不能凭空消失 */
+    border:2px solid rgba(255,255,255,.52);border-radius:13px;outline:none;
+    background-color:#000;
+    background-image:
+      linear-gradient(180deg,#000,#000),
+      conic-gradient(from var(--mfx-a,0deg),
+        rgba(255,240,247,.55) 0deg,rgba(246,196,178,.95) 3deg,rgba(227,214,247,.95) 6.5deg,
+        rgba(159,198,240,.92) 9deg,rgba(159,198,240,.35) 11.5deg,rgba(159,198,240,0) 14.5deg,
+        transparent 165.5deg,rgba(159,198,240,.35) 168.5deg,rgba(159,198,240,.92) 171deg,
+        rgba(227,214,247,.95) 173.5deg,rgba(246,196,178,.95) 177deg,rgba(255,240,247,.55) 180deg,
+        rgba(246,196,178,.95) 183deg,rgba(227,214,247,.95) 186.5deg,rgba(159,198,240,.92) 189deg,
+        rgba(159,198,240,.35) 191.5deg,rgba(159,198,240,0) 194.5deg,
+        transparent 345.5deg,rgba(159,198,240,.35) 348.5deg,rgba(159,198,240,.92) 351deg,
+        rgba(227,214,247,.95) 353.5deg,rgba(246,196,178,.95) 357deg,rgba(255,240,247,.55) 360deg),
+      conic-gradient(from var(--mfx-a,0deg),
+        #b3bdc9 0deg,#d3dce6 6deg,#f2f6fb 14deg,#ffffff 20deg,
+        #e4ebf3 28deg,#cbd5e0 38deg,#bcc6d3 50deg,#ccd5e0 60deg,
+        #e9eff5 68deg,#ffffff 74deg,#dde4ec 82deg,#c2ccd8 88deg,
+        #b4becb 90deg,#c2ccd8 92deg,#dde4ec 98deg,#ffffff 106deg,
+        #e9eff5 112deg,#ccd5e0 120deg,#bcc6d3 130deg,#cbd5e0 142deg,
+        #e4ebf3 152deg,#ffffff 160deg,#f2f6fb 166deg,#d3dce6 174deg,
+        #b3bdc9 180deg,#d3dce6 186deg,#f2f6fb 194deg,#ffffff 200deg,
+        #e4ebf3 208deg,#cbd5e0 218deg,#bcc6d3 230deg,#ccd5e0 240deg,
+        #e9eff5 248deg,#ffffff 254deg,#dde4ec 262deg,#c2ccd8 268deg,
+        #b4becb 270deg,#c2ccd8 272deg,#dde4ec 278deg,#ffffff 286deg,
+        #e9eff5 292deg,#ccd5e0 300deg,#bcc6d3 310deg,#cbd5e0 322deg,
+        #e4ebf3 332deg,#ffffff 340deg,#f2f6fb 346deg,#d3dce6 354deg,
+        #b3bdc9 360deg);
+    background-clip:padding-box,border-box,border-box;
+    background-origin:padding-box,border-box,border-box;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.10);
+    animation:mfx-turn 14s linear infinite;
+    transition:box-shadow .2s ease;
+  }
+  .fld input::placeholder{color:rgba(238,246,249,.34);letter-spacing:.12em}
+  .fld input:focus{
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.16),
+               0 0 0 3px rgba(255,255,255,.10),
+               0 0 26px rgba(255,255,255,.12);
+  }
+  /* 只有真能画出 conic 渐变的内核才把实色边让出来 */
+  /* 两个输入框错开相位，否则两条边同步转，看着像机械臂而不是液体 */
+  .fld + .fld input{animation-delay:-4.2s}
+
+  @supports (background:conic-gradient(from 0deg,red,blue)){
+    .fld input{border-color:transparent}
+  }
+  /* 错误提示：Uiverse · Smit-Prajapati 的网格发光外观（只取外观，无悬停/无动效）
+     尺寸与输入框一致：宽 100%、高 56 */
+  .err{
+    display:none;box-sizing:border-box;
+    width:100%;min-height:56px;
+    margin:0 0 12px;padding:4px 16px;
+    --e-main:rgb(255,64,64);
+    --e-bg:rgba(255,64,64,.34);
+    --e-pattern:rgba(255,64,64,.08);
+    font-size:13px;font-weight:700;letter-spacing:.02em;
+    color:var(--e-main);
+    background:
+      radial-gradient(circle,var(--e-bg) 0%,rgba(0,0,0,0) 95%),
+      linear-gradient(var(--e-pattern) 1px,transparent 1px),
+      linear-gradient(to right,var(--e-pattern) 1px,transparent 1px);
+    background-size:cover,15px 15px,15px 15px;
+    background-position:center center,center center,center center;
+    border-style:solid;border-width:1px 0 1px 0;
+    border-image:radial-gradient(circle,var(--e-main) 0%,rgba(0,0,0,0) 100%) 1;
+  }
+  .err.on{display:flex;flex-direction:column;justify-content:center}
+  /* 主按钮：描边样式，悬停/点按填充并扫过一道白光（Uiverse · mrhyddenn）
+     手机没有 hover，:hover 之外再加 .is-shine 由脚本在点按时触发一次 */
+  .go{
+    position:relative;isolation:isolate;   /* 建独立层叠上下文，好让扫光压在文字下面 */
+    width:100%;padding:13px 20px;margin-top:4px;
+    border-radius:7px;
+    border:1px solid #EDEBE5;
+    font-size:14px;font-weight:600;font-family:inherit;
+    text-transform:uppercase;letter-spacing:.16em;text-indent:.16em;
+    background:transparent;color:#fff;
+    overflow:hidden;
+    box-shadow:0 0 0 0 transparent;
+    cursor:pointer;
+    transition:all .2s ease-in;
+    touch-action:manipulation;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .go::before{
+    content:'';display:block;position:absolute;
+    width:0;height:86%;top:7%;left:0;z-index:-1;
+    opacity:0;background:#fff;
+    box-shadow:0 0 50px 30px #fff;
+    transform:skewX(-20deg);
+    pointer-events:none;
+  }
+  /* 触屏上 :hover 会「粘住」不放，所以悬停样式只在真有指针悬停的设备生效；
+     手机改由 .is-shine 在点按时触发同样的一次填充 + 扫光。 */
+  @media (hover:hover) and (pointer:fine){
+    .go:hover{
+      background:#EDEBE5;color:#0a0e13;
+      box-shadow:0 0 30px 5px rgba(237,235,229,.72);
+      transition:all .2s ease-out;
+    }
+    .go:hover::before{animation:sh02 .5s 0s linear}
+  }
+  .go.is-shine{
+    background:#EDEBE5;color:#0a0e13;
+    box-shadow:0 0 30px 5px rgba(237,235,229,.72);
+    transition:all .2s ease-out;
+  }
+  .go.is-shine::before{animation:sh02 .5s 0s linear}
+  .go:active{
+    box-shadow:0 0 0 0 transparent;
+    transition:box-shadow .2s ease-in;
+  }
+  .go[disabled]{opacity:.5;cursor:default;transform:none}
+  .go.is-press{transform:scale(.985)}
+  /* 面板里的「教师入口」：样式与「查看」完全一致，只多留一点间距把两个按钮分开 */
+  .go-teacher{margin-top:10px}
+  @keyframes sh02{
+    from{opacity:0;left:0%}
+    50%{opacity:1}
+    to{opacity:0;left:100%}
+  }
+  .close{
+    display:block;margin:14px auto 0;background:none;border:0;cursor:pointer;
+    color:rgba(245,242,236,.55);font-size:12px;letter-spacing:.18em;font-family:inherit;
+  }
+  /* 按钮底改回纯白，转圈的描边必须反过来走深色，否则白底上的白圈等于没有 */
+  .spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(14,14,14,.26);
+    border-top-color:#0a0e13;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:7px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- 按下即反馈 ----------
+     GXFluid 在 pointerdown 的同一帧打上 .is-press，滑开 10px 自动撤销。
+     等 click 才变样式，手感就「死」了。 */
+  .go,.close,.hint{transition:transform .18s ease, opacity .18s ease, color .18s ease, background .18s ease}
+  .go.is-press{transform:scale(.972)}
+  .close.is-press{color:rgba(238,246,249,.95);transform:scale(.94)}
+  /* 中央热区不可见，反馈落在标题上：整行字「沉下去」一点点（原炫彩黑洞版就是这个手感）。
+     缩放必须挂在 .title 的内层 span 上——.title 自己带着入场动画，fill:both 会永久占住
+     transform，落在它身上的 scale 从第一次打开起就永远不生效。 */
+  /* 标题恒为一行：三道保险，缺一道都可能在某些内核上退回两行——
+       white-space:nowrap 挡普通软换行；
+       word-break:keep-all 挡中文「逐字可断」这条 WebKit 的默认规则；
+       width:max-content 让宽度按内容算，不被 inline-block 的 shrink-to-fit 夹到容器宽。 */
+  /* 标题高光：Uiverse · neerajbaniwal 的 btn-shine（与内页标题同一套参数）。
+     时间参数不动：3s 一轮、前 60% 在扫、linear、起终点都在文字外。
+     高光带按**文字宽度**排（脚本写 --sw / --sx），不按盒子宽度，
+     否则块级元素盒子比文字宽时会「整块闪一下」，比「心端 Uprightness」快好几倍。
+     详细原因见 brief/index.html 里同名注释。没有脚本时用百分比兜底。 */
+  .gx-shine{
+    background-image:linear-gradient(to right,#a3a3a3 0%,#a3a3a3 38%,#ffffff 50%,#a3a3a3 62%,#a3a3a3 100%);
+    background-color:#a3a3a3;
+    background-size:200% 100%;
+    background-repeat:repeat-x;
+    background-position:125% 0;
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;
+    animation:gx-shine 3s linear infinite;
+  }
+  .gx-shine.is-sw{
+    background-size:calc(var(--sw) * 2) 100%;
+    background-repeat:no-repeat;
+    background-position:calc(var(--sx,0px) - var(--sw) * 1.25) 0;
+    animation-name:gx-shine-px;
+  }
+  @keyframes gx-shine{
+    0%{background-position:125% 0}
+    60%,100%{background-position:-25% 0}
+  }
+  @keyframes gx-shine-px{
+    0%{background-position:calc(var(--sx,0px) - var(--sw) * 1.25) 0}
+    60%,100%{background-position:calc(var(--sx,0px) + var(--sw) * .25) 0}
+  }
+  .title .t{
+    display:inline-block;
+    white-space:nowrap;
+    word-break:keep-all;
+    width:max-content;
+    max-width:none;
+    transform-origin:center center;
+    transition:transform .24s cubic-bezier(.2,.8,.3,1);
+  }
+  /* 只有收字号还不够时才挂 scale（见 fitTitle），平时不加合成层，字不容易发虚 */
+  .title .t[data-tf]{transform:scale(var(--tf,1))}
+  .sub{transition:transform .24s cubic-bezier(.2,.8,.3,1)}
+  /* 这里原来写的是 body:has(.hotspot.is-press)。
+     :has() 要 iOS 15.4 / Safari 15.4 才有，老一点的 iPhone 上整条规则被丢弃，
+     表现就是「点中央标题完全没反应」。改由脚本在 pointerdown 给 body 挂 center-press，
+     等效且 iOS 9 起都能用。 */
+  /* 按压反馈：正常情况下直接 scale(.94)，幅度够明显，快速点按也能感知。
+     标题被 fit 缩放时（有 data-tf + --tf）再叠加 --tf，避免 var() 空字符串导致 calc 失效 */
+  body.center-press .title .t{transform:scale(.94)}
+  body.center-press .title .t[data-tf]{transform:scale(calc(var(--tf) * .94))}
+  body.center-press .sub{transform:scale(.96)}
+  body.center-press .hint{opacity:.92;animation-play-state:paused}
+
+  /* 减弱动效只收「纯装饰」：入场位移、无限脉冲。
+     面板开合与按压缩放是空间关系和操作确认，属于「必要动效」，
+     一并关掉会让人以为页面坏了——iPhone 12 Pro Max 上实测就是这样，
+     球体静止、面板直接闪现、点了没有任何反馈，看起来像整站脚本挂了。 */
+
+</style>
+<script>window.__gxBuild='1104a';</script>
+<script src="gx-fluid.js?v=1105b" defer></script>
+</head>
+<body>
+
+<div id="bh" aria-hidden="true"></div>
+
+<div class="overlay" id="center">
+  <div class="title"><span class="t">中华射道课程&ensp;·&ensp;观德七心</span></div>
+  <div class="sub gx-shine">The Dao of Chinese Archery</div>
+  <div class="hint">轻触中央 · 查看个人数据</div>
+</div>
+
+<button class="hotspot" id="hotspot" type="button" aria-label="打开查询面板"></button>
+
+<div class="veil" id="veil"></div>
+
+<div class="sheet" id="sheet" role="dialog" aria-label="输入10位学号与姓名查询">
+  <div class="sheet-card">
+    <div class="grab-zone" id="grabS" aria-hidden="true"><div class="grab"></div></div>
+    <h2>观德七心 · 个人综合数据查询</h2>
+    <div class="en">PERSONAL DATA QUERY</div>
+    <form id="qform" novalidate>
+      <div class="err" id="err"></div>
+      <div class="fld">
+        <label for="sid">学号<span style="font-size:10px;letter-spacing:.04em;opacity:.55;margin-left:6px">10 characters, digits or letters</span></label>
+        <!-- 学号是「数字 + 字母」共 10 位（如 v530006255），所以不能再用 type=tel/numeric，
+             否则手机键盘打不出字母；大小写都收，匹配时再由服务端统一。 -->
+        <input id="sid" type="text" inputmode="text" maxlength="10" enterkeyhint="next"
+               autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="fld">
+        <label for="fc">姓名<span style="font-size:10px;letter-spacing:.04em;opacity:.55;margin-left:6px">Your name</span></label>
+        <input id="fc" type="text" maxlength="20" enterkeyhint="go" autocomplete="name">
+      </div>
+      <button class="go" id="go" type="submit">查看</button>
+      <button class="go go-teacher" id="teacherBtn" type="button">教师入口</button>
+      <button class="close" id="close" type="button">返 回</button>
+    </form>
+  </div>
+</div>
+
+
+<script>
+(function(){
+  'use strict';
+
+  /* ============ 面板交互 ============ */
+  var elSid = document.getElementById('sid');
+  var elFc  = document.getElementById('fc');
+  var elGo  = document.getElementById('go');
+  var elErr = document.getElementById('err');
+
+  /* 扫光按需触发：桌面靠 :hover，手机没有 hover，点按时补一次，效果才看得见。
+     委托到 document，所有 .go（查看 / 教师入口）都生效。 */
+  (function () {
+    function flash(el) {
+      el.classList.add('is-shine');
+      clearTimeout(el.__shineT);
+      el.__shineT = setTimeout(function () { el.classList.remove('is-shine'); }, 620);
+    }
+    function hit(e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var b = t.closest('.go,.ghost');
+      if (!b || b.disabled) return;
+      flash(b);
+    }
+    document.addEventListener('pointerdown', hit, { passive: true });
+    document.addEventListener('touchstart', hit, { passive: true });
+  })();
+
+  /* 高光带按「文字宽度」归位（详见 brief/index.html 里的同名注释）：
+     块级元素的盒子比文字宽时，按盒子算的光带会比整行文字还宽，看着是「整块闪一下」。
+     --sw 文字宽、--sx 文字左端偏移，量出来之后 .is-sw 改用像素坐标。 */
+  (function () {
+    var timer = 0;
+    function measure(el) {
+      var box = el.getBoundingClientRect();
+      if (box.width < 4) return;
+      var left = Infinity, right = -Infinity, rg = document.createRange();
+      try { rg.selectNodeContents(el); } catch (e) { return; }
+      var rects = rg.getClientRects();
+      for (var i = 0; i < rects.length; i++) {
+        if (rects[i].width < 0.5) continue;
+        if (rects[i].left < left) left = rects[i].left;
+        if (rects[i].right > right) right = rects[i].right;
+      }
+      var w = right > left ? right - left : 0;
+      if (w < 4) return;
+      el.style.setProperty('--sw', w.toFixed(1) + 'px');
+      el.style.setProperty('--sx', (left - box.left).toFixed(1) + 'px');
+      if (!el.classList.contains('is-sw')) el.classList.add('is-sw');
+    }
+    function all() {
+      var list = document.querySelectorAll('.gx-shine');
+      for (var i = 0; i < list.length; i++) measure(list[i]);
+    }
+    function soon() {
+      if (timer) return;
+      timer = setTimeout(function () { timer = 0; all(); }, 120);
+    }
+    window.gxShine = all;
+    all();
+    window.addEventListener('resize', soon);
+    window.addEventListener('orientationchange', function () { setTimeout(all, 320); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(soon);
+
+    /* 兜底：万一某个引擎不支持「关键帧里用自定义属性」，光带会一直不动 ——
+       那比速度不一致更糟。这里在可见状态下采样一整个周期（3.2s），
+       位移始终为 0 就整体退回百分比那套（长标题会快一点，但绝不会静止）。 */
+    function guard() {
+      if (document.visibilityState !== 'visible') { setTimeout(guard, 800); return; }
+      var el = null, list = document.querySelectorAll('.gx-shine.is-sw');
+      for (var i = 0; i < list.length; i++) {
+        var r = list[i].getBoundingClientRect();
+        if (r.width > 4 && r.bottom > 0 && r.top < innerHeight) { el = list[i]; break; }
+      }
+      if (!el) { setTimeout(guard, 800); return; }
+      var lo = Infinity, hi = -Infinity, n = 0;
+      (function tick() {
+        var v = parseFloat(getComputedStyle(el).backgroundPosition);
+        if (!isNaN(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+        if (++n < 22) setTimeout(tick, 150);
+        else if (hi - lo < 0.5) {
+          var all = document.querySelectorAll('.gx-shine.is-sw');
+          for (var j = 0; j < all.length; j++) {
+            all[j].classList.remove('is-sw');
+            all[j].style.removeProperty('--sw');
+            all[j].style.removeProperty('--sx');
+          }
+        }
+      })();
+    }
+    setTimeout(guard, 1200);
+  })();
+
+  /* ============ 面板开合：弹簧驱动 ============
+     gx-fluid.js 是 defer 加载的，可能比这段内联脚本晚执行，所以控制器做成惰性创建：
+     第一次开面板时才去拿 GXFluid，拿不到就退回 CSS 过渡，行为一致。 */
+  var sheetCtl = null, sheetTried = false;
+  function fluidSheet(){
+    if (sheetTried) return sheetCtl;
+    sheetTried = true;
+    if (window.GXFluid && GXFluid.Sheet) {
+      /* drag 只绑顶部抓取带，手势只认「往下」＝关闭；往上推不动 */
+      sheetCtl = new GXFluid.Sheet({ el: document.getElementById('sheet'), cls: 'sheet-open',
+                                     drag: '#grabS', damping: 0.9, response: 0.4 });
+    }
+    return sheetCtl;
+  }
+
+  function openSheet(){
+    var c = fluidSheet();
+    if (c) c.open(); else document.body.classList.add('sheet-open');
+    setTimeout(function(){
+      var v = (elSid.value || '').replace(/[^0-9A-Za-z]/g,'');
+      if(elFc && v.length >= 9) elFc.focus(); else elSid.focus();
+    }, 460);
+  }
+  function closeSheet(){
+    elErr.classList.remove('on');
+    var c = fluidSheet();
+    if (c) c.close(0); else document.body.classList.remove('sheet-open');
+  }
+
+  document.getElementById('hotspot').addEventListener('click', openSheet);
+  document.getElementById('center').addEventListener('click', openSheet);
+  document.getElementById('veil').addEventListener('click', closeSheet);
+  document.getElementById('close').addEventListener('click', closeSheet);
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeSheet(); });
+  /* 只剔空格和标点，字母原样保留（小写不大写） */
+  elSid.addEventListener('input', function(){
+    var v = this.value.replace(/[^0-9A-Za-z]/g, '');
+    if (v !== this.value) this.value = v;
+  });
+  /* 学号填满后回车 → 到姓名框 */
+  elSid.addEventListener('keydown', function(ev){
+    if(ev.key === 'Enter' && elFc && !elFc.value.trim()){ ev.preventDefault(); elFc.focus(); }
+  });
+
+  /* ============ 中央按下的即时反馈 ============
+     按下即变，不等 click；手指滑开 10px 撤销。
+     用 pointer 事件，没有 PointerEvent 的老内核退回 touch。
+     松手后延迟 150ms 再复位：快速点按时（pointerdown→up 间隔极短），
+     若立即移除类，0.24s 的缩放过渡还没开始就被打断，视觉上完全看不到。 */
+  var hotspot = document.getElementById('hotspot');
+  var pressPt = null;
+  var pressTimer = null;
+  var titleEl = document.querySelector('.title .t');
+  function centerDown(x, y){
+    pressPt = { x: x, y: y };
+    clearTimeout(pressTimer);
+    document.body.classList.add('center-press');
+    /* 双保险：直接写内联 transform，绕开 CSS 类/var 变量/特异性这些在微信
+       WKWebView 里容易失效的一切。内联样式优先级最高，必然生效。 */
+    if (titleEl) titleEl.style.transform = 'scale(.94)';
+  }
+  function centerUp(){
+    pressPt = null;
+    clearTimeout(pressTimer);
+    /* 松手后先弹回，再延迟移除类。内联 transform 直接清掉即可回到原状。 */
+    if (titleEl) titleEl.style.transform = '';
+    pressTimer = setTimeout(function(){
+      document.body.classList.remove('center-press');
+    }, 150);
+  }
+  function centerMove(x, y){
+    if (!pressPt) return;
+    if (Math.abs(x - pressPt.x) > 10 || Math.abs(y - pressPt.y) > 10) centerUp();
+  }
+  /* 同时绑定 pointer 和 touch 两套事件，用去重标记避免重复触发。
+     微信 iOS 用 WKWebView，虽然 window.PointerEvent 存在，但真实触摸时可能
+     只派发 touch 事件（pointer 被微信拦截）——这正是不明原因「微信里没效果、
+     浏览器里有效果」的来源。两套都挂，哪套先到哪套生效。
+
+     注意：pointerdown 挂到 document 而非 hotspot 上。GXFluid 的 bindPress
+     也是 document 级监听（其他按钮因此微信里正常）；微信 WKWebView 对
+     <button> 元素上的 pointer 事件可能被手势层拦截，但冒泡到 document 的事件
+     一定能到。touch 事件则挂 hotspot（touch 不会冒泡问题）。 */
+  var pressHandled = false;
+  function centerDownOnce(x, y){
+    if (pressHandled) return;
+    pressHandled = true;
+    centerDown(x, y);
+  }
+  function centerUpOnce(){
+    if (!pressHandled) return;
+    pressHandled = false;
+    centerUp();
+  }
+  hotspot.addEventListener('touchstart', function(e){
+    var t = e.touches && e.touches[0];
+    if (t) centerDownOnce(t.clientX, t.clientY);
+  }, { passive: true });
+  document.addEventListener('touchmove', function(e){
+    var t = e.touches && e.touches[0];
+    if (t) centerMove(t.clientX, t.clientY);
+  }, { passive: true });
+  document.addEventListener('touchend', centerUpOnce);
+  document.addEventListener('touchcancel', centerUpOnce);
+  if (window.PointerEvent) {
+    /* document 级监听 + 判断目标是 hotspot：微信里 button 上的 pointerdown
+       可能被吞，但冒泡到 document 的能收到。 */
+    document.addEventListener('pointerdown', function(e){
+      if (e.target === hotspot || (hotspot.contains && hotspot.contains(e.target))) {
+        centerDownOnce(e.clientX, e.clientY);
+      }
+    });
+    document.addEventListener('pointermove', function(e){ centerMove(e.clientX, e.clientY); }, { passive: true });
+    document.addEventListener('pointerup', centerUpOnce);
+    document.addEventListener('pointercancel', centerUpOnce);
+  }
+  window.addEventListener('blur', centerUp);
+
+  /* 教师入口：查询面板里「查看」下面那个按钮，直接去内页并把教师面板展开 */
+  var elTBtn = document.getElementById('teacherBtn');
+  if (elTBtn) elTBtn.addEventListener('click', function () {
+    /* 留一点时间让按下的白底 + 扫光露出来，再跳转 */
+    setTimeout(function () { location.href = 'brief/index.html#teacher'; }, 160);
+  });
+
+  /* 调试/直达：?sheet=1 自动弹出面板 */
+  if(/[?&]sheet=1/.test(location.search)) openSheet();
+
+  document.getElementById('qform').addEventListener('submit', function(ev){
+    ev.preventDefault();
+    elErr.classList.remove('on');
+    var sid = (elSid.value || '').replace(/[^0-9A-Za-z]/g,'');
+    var fc  = (elFc && elFc.value ? elFc.value : '').replace(/[\s\u3000\u00a0]/g,'');
+    /* 规则：数字 + 字母共 10 位；9 位放行，给早年只填了数字的同学兜底（服务端按后缀匹配） */
+    if(sid.length < 9 || sid.length > 10){ elErr.textContent = '请填写正确的姓名和学号。'; elErr.classList.add('on'); elSid.focus(); return; }
+    if(!fc){ elErr.textContent = '请填写姓名（与问卷里填写的一致）。'; elErr.classList.add('on'); if(elFc) elFc.focus(); return; }
+    elGo.disabled = true;
+    elGo.innerHTML = '<span class="spinner"></span>正在打开…';
+    location.href = 'brief/index.html?sid=' + encodeURIComponent(sid) + '&name=' + encodeURIComponent(fc);
+  });
+})();
+
+/* ============ 标题恒为一行 ============
+   微信里同一段 CSS，在不同手机/字体缩放设置下宽度会不一样：
+   390 宽一行放得下，428 宽反而被系统放大字号后挤成两行。
+   所以不依赖某个固定字号，而是量一次实际宽度，放不下就按比例收，直到一行。 */
+(function(){
+  var overlay = document.querySelector('.overlay');
+  var t = document.querySelector('.title .t');
+  if (!overlay || !t) return;
+  var HARD_MIN = 8;
+  var host = t.parentNode || t;          /* 字号挂在 .title 上，不挂在 .t 上 */
+  var TEXT = t.textContent || '';
+
+  /* 实际渲染了几行。不能直接用 Range 的 rect 数量：
+     标题里每个字都是 inline-block（每个字要独立做动画）时，Range 会「逐个子元素」
+     返回矩形，11 个字就返回 11 —— 会被当成 11 行，字号一路压到 8px（首屏标题变成一条细缝）。
+     所以有逐字 span 时按 offsetTop 去重来数（offsetTop 不受动画 transform 影响）；
+     没有逐字 span 时退回 Range 矩形数。 */
+  function lineCount(){
+    try {
+      var cells = t.querySelectorAll('.ld-c');
+      if (cells.length > 1) {
+        var tops = [];
+        for (var i = 0; i < cells.length; i++) {
+          var y = cells[i].offsetTop;
+          if (tops.indexOf(y) === -1) tops.push(y);
+        }
+        return tops.length || 1;
+      }
+      var r = document.createRange();
+      r.selectNodeContents(t);
+      var rects = r.getClientRects();
+      return rects.length || 1;
+    } catch (e) { return 1; }
+  }
+
+  function setSize(fs){ host.style.fontSize = fs.toFixed(2) + 'px'; }
+
+  /* 单行真实宽度：用一个隐藏的、绝对单行布局的探针元素量出「这行字到底多宽」。
+     探针设 white-space:nowrap + width:max-content，让浏览器按单行排版，
+     然后读它的 scrollWidth（不含 scale、不含容器裁剪），这是唯一不受折行影响的真实宽度。 */
+  var probe = null;
+  function realWidth(){
+    try {
+      if (!probe) {
+        probe = document.createElement('span');
+        probe.setAttribute('aria-hidden', 'true');
+        probe.style.cssText = 'position:absolute;left:-9999px;top:0;' +
+          'white-space:nowrap;width:max-content;max-width:none;visibility:hidden;' +
+          'font-family:' + window.getComputedStyle(t).fontFamily + ';';
+        document.body.appendChild(probe);
+      }
+      probe.textContent = TEXT;
+      var cs = window.getComputedStyle(t);
+      probe.style.fontSize = cs.fontSize;
+      probe.style.fontWeight = cs.fontWeight;
+      probe.style.letterSpacing = cs.letterSpacing;
+      probe.style.textIndent = cs.textIndent;
+      return probe.scrollWidth || 0;
+    } catch (e) { return 0; }
+  }
+
+  function fit(){
+    /* 单行约束写死成内联样式，优先级高于任何样式表：
+       nowrap 挡普通软换行、keep-all 挡中文逐字断行、max-content 让宽度按内容算。 */
+    t.style.display = 'inline-block';
+    t.style.whiteSpace = 'nowrap';
+    t.style.wordBreak = 'keep-all';
+    t.style.maxWidth = 'none';
+    t.style.width = 'max-content';
+    t.style.fontSize = '';               /* 字号统一由 .title 控制 */
+
+    host.style.fontSize = '';
+    t.style.removeProperty('--tf');
+    t.removeAttribute('data-tf');
+
+    var avail = overlay.clientWidth - 24;   /* 两边各留 12px，避免贴边 */
+    if (avail <= 0) return;
+    var fs = parseFloat(window.getComputedStyle(t).fontSize) || 20;
+
+    /* 一、用「真实单行宽度」按比例一次解出目标字号。
+       realWidth 是浏览器实际排出来的宽度，字体切换、系统缩放都会如实反映。 */
+    for (var i = 0; i < 10; i++) {
+      var need = realWidth();
+      if (!need || need <= avail) break;
+      var next = Math.max(HARD_MIN, fs * avail / need * 0.98);
+      if (next >= fs - 0.05) break;
+      fs = next;
+      setSize(fs);
+    }
+
+    /* 二、按真实行盒复核：最终兜底，一行没压下去就继续收。 */
+    for (var k = 0; k < 40 && fs > HARD_MIN && lineCount() > 1; k++) {
+      fs = Math.max(HARD_MIN, fs * 0.96);
+      setSize(fs);
+    }
+
+    /* 三、到底仍超宽：把宽度设成单行真实宽度再整体缩回屏内（物理上不可能折行）。 */
+    var need2 = realWidth() || t.offsetWidth || avail;
+    if (need2 > avail + 0.5) {
+      t.style.width = Math.ceil(need2) + 'px';
+      t.style.setProperty('--tf', Math.max(0.5, avail / need2).toFixed(4));
+      t.setAttribute('data-tf', '');
+    }
+  }
+  fit();
+  /* 字体晚一步加载完时宽度会变，重新量一次 */
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+  window.addEventListener('load', fit);
+  var timer = null;
+  function later(){ clearTimeout(timer); timer = setTimeout(fit, 120); }
+  window.addEventListener('resize', later);
+  window.addEventListener('orientationchange', later);
+
+  /* 关键：字体是「异步切换」的（fallback → Songti SC），切换瞬间标题可能从一行折成两行。
+     这正是「一开始一行、画面抽搐一下、变两行」的成因。fonts.ready 只在字体下载完成时触发一次，
+     但微信 WebView 里字形真正应用到布局还要晚一拍。所以前 5 秒内高频监测：
+     折行（lines>1）或溢出（宽度超过可用宽）任一发生，就立刻 fit 一次。 */
+  (function watch(){
+    var start = Date.now();
+    var lastBroken = false;
+    function loop(){
+      if (Date.now() - start > 6000) return;   /* 6 秒后停止，之后由 resize/fonts.ready 兜底 */
+      var broken = false;
+      if (lineCount() > 1) broken = true;
+      else {
+        var avail = overlay.clientWidth - 24;
+        if (avail > 0 && t.offsetWidth > avail + 2) broken = true;  /* nowrap 生效时是溢出而非折行 */
+      }
+      if (broken && !lastBroken) {
+        fit();                                  /* 从正常变折行/溢出 → 立即重排 */
+      }
+      lastBroken = broken;
+      setTimeout(loop, 100);
+    }
+    loop();
+  })();
+
+  /* ?diag=1：把标题的实测数据直接写在屏幕上。
+     标题在某些机器上折行时，不用连电脑也能看到到底差多少、nowrap 有没有生效。 */
+  if (/[?&]diag=1/.test(location.search)) {
+    var box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;max-width:92vw;' +
+      'font:11px/1.6 ui-monospace,Menlo,monospace;color:#9df0c2;background:rgba(0,20,14,.9);' +
+      'border:1px solid rgba(110,231,168,.5);border-radius:8px;padding:7px 9px;' +
+      'white-space:pre-wrap;pointer-events:none';
+    document.body.appendChild(box);
+    var dump = function(){
+      var cs = getComputedStyle(t);
+      var lines = Math.round(t.offsetHeight / (parseFloat(cs.fontSize) * 1.6));
+      box.textContent =
+        '视口 ' + window.innerWidth + '×' + window.innerHeight + '  dpr ' + (window.devicePixelRatio || 1) + '\n' +
+        '标题字号 ' + cs.fontSize + '   行数 ' + lineCount() + '\n' +
+        '标题宽 ' + t.offsetWidth + ' / 可用 ' + (overlay.clientWidth - 24) + '\n' +
+        'white-space ' + cs.whiteSpace + '   scale ' + (t.getAttribute('data-tf') !== null ? getComputedStyle(t).transform : '1') + '\n' +
+        '构建 ' + (window.__gxBuild || '?') + '   UA ' + navigator.userAgent.slice(0, 80);
+    };
+    dump();
+    setTimeout(dump, 800);
+    setTimeout(dump, 2500);
+  }
+  /* 标题实测数据无条件回报一次：真机上没法连控制台，
+     任何一台手机打开后服务端 /api/diag 都能直接读到字号、行数、nowrap 是否生效。 */
+  setTimeout(function(){
+    try {
+      var cs = getComputedStyle(t);
+      var lines = lineCount();
+      var avail2 = overlay.clientWidth - 24;
+      window.__gxTitle = {
+        fs: cs.fontSize, lines: lines, ws: cs.whiteSpace,
+        w: t.offsetWidth, avail: avail2,
+        need: Math.round(measure())
+      };
+      /* 用 GET 探针而不是 XHR：一个 Image 请求就能带上去，
+         不经过 POST、不受预检/网关影响，微信里也不会被拦。 */
+      var q = '/api/diag?type=title' +
+        '&fs=' + encodeURIComponent(cs.fontSize) +
+        '&lines=' + lines +
+        '&ws=' + encodeURIComponent(cs.whiteSpace) +
+        '&w=' + t.offsetWidth +
+        '&avail=' + avail2 +
+        '&need=' + window.__gxTitle.need +
+        '&vw=' + window.innerWidth +
+        '&vh=' + window.innerHeight +
+        '&dpr=' + (window.devicePixelRatio || 1) +
+        '&tf=' + (t.getAttribute('data-tf') !== null ? '1' : '0') +
+        '&ver=' + (window.__gxBuild || '') +
+        '&ua=' + encodeURIComponent(navigator.userAgent);
+      var img = new Image();
+      img.src = q;
+    } catch (e) {}
+  }, 3000);
+
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', later);
+})();
+
+</script>
+
+<!-- ============ 封面背景：GhostFibers（React Bits 组件移植版，无 React/无构建） ============
+     银白配色，跟整站「纯黑纯白」的调性一致；手机上自动走轻一点的档位。
+     参数想调就改下面 opts，或者控制台里 window.__GX_BG.update({ brightness: 1.6 })。 -->
+<script src="./fibers/ghost-fibers.js"></script>
+<script>
+(function(){
+  var host = document.getElementById('bh');
+  if (!host) return;
+  if (!window.GhostFibers) { host.classList.add('bg-fallback'); return; }
+
+  var small = Math.min(window.innerWidth || 0, window.innerHeight || 0) < 640;
+  var fx = window.GhostFibers.mount(host, {
+    glowColor: '#c8d3e0',
+    secondaryColor: '#5c6675',
+    lineColor: '#ffffff',
+    gradient: 'depth',
+    layers: 3,
+    twist: 1.2,
+    waves: 1,
+    rotation: 18,
+    perspective: 0.65,
+    threads: small ? 54 : 72,
+    density: small ? 0.85 : 1,
+    thickness: 1,
+    fiberStyle: 'dots',
+    depthOfField: 0.85,
+    hoverEffect: 'focus',
+    mouseInteraction: true,
+    pulseOnClick: true,
+    intro: true,
+    glow: small ? 0.95 : 1.05,
+    brightness: small ? 1.45 : 1.3,
+    vignette: 0.35,
+    grain: 0.05,
+    sparkle: 0.55,
+    speed: 0.5,
+    particles: small ? 0.35 : 0.45
+  });
+  window.__GX_BG = fx;
+
+  if (!fx || !fx.ok) {
+    /* 没有 WebGL2（老机型 / 关掉了硬件加速）：退回静态海报，并回报一次方便排查 */
+    host.classList.add('bg-fallback');
+    try {
+      var x = new XMLHttpRequest();
+      x.open('POST', '/api/diag', true);
+      x.setRequestHeader('Content-Type', 'application/json');
+      x.send(JSON.stringify({
+        type: 'fibers_state', state: 'fallback',
+        webgl2: (function(){ try { return !!document.createElement('canvas').getContext('webgl2'); } catch (e) { return false; } })(),
+        ua: navigator.userAgent,
+        vw: window.innerWidth, vh: window.innerHeight,
+        dpr: window.devicePixelRatio || 1,
+        at: new Date().toISOString()
+      }));
+    } catch (e) {}
+  }
+
+  /* 从 bfcache 解冻回来时 rAF 是停的，戳一下让画面继续动 */
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted && fx && fx.update) { try { fx.update({}); } catch (err) {} }
+  });
+})();
+</script>
+</body>
+</html>
